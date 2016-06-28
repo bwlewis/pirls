@@ -20,6 +20,7 @@ NULL
 #' @param beta initial slope coefficients. Default is zeros.
 #' @param beta_update a function for optimizing the slope coefficients
 #' for the current weight matrix. Default is coordinate_descent.
+#' @importFrom Matrix spMatrix
 #' @export
 pirls = function(X, y, lambda, alpha=1, family=binomial, maxit=500, 
                       tol=1e-8, beta=spMatrix(nrow=ncol(X), ncol=1), 
@@ -27,14 +28,14 @@ pirls = function(X, y, lambda, alpha=1, family=binomial, maxit=500,
   converged = FALSE
   for(i in 1:maxit) {
     # Note that there aren't sparse family functions.
-    eta      = as.vector(X %*% beta)
+    eta      = drop(X %*% beta)
     g        = family()$linkinv(eta)
     gprime   = family()$mu.eta(eta)
     z        = eta + (y - g) / gprime
-    W        = as.vector(gprime^2 / family()$variance(g))
+    W        = drop(gprime^2 / family()$variance(g))
     beta_old = beta
     beta = beta_update(X, W, z, lambda, alpha, beta, maxit)
-    if(sqrt(as.vector(Matrix::crossprod(beta-beta_old))) < tol) {
+    if(sqrt(drop(Matrix::crossprod(beta - beta_old))) < tol) {
       converged = TRUE
       break
     }

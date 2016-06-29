@@ -59,7 +59,7 @@ function(x, y, family=binomial, maxit=25, tol=1e-08)
 }
 
 
-
+# Distributed PIRLS algorithm code follows ------------------------------------
 
 # A trivially basic parallel darray times vector product, used in quadratic_loss
 setMethod("%*%", signature(x="ParallelObj", y="numeric"), function(x ,y)
@@ -73,26 +73,36 @@ setMethod("%*%", signature(x="ParallelObj", y="matrix"), function(x ,y)
   mvec(x, drop(y))
 })
 
-# Compute a[, -i] %*% x[-i] where x is a vector and a is a darray
-# XXX rbind is expensive, consider allocating the result and explicitly filling in XXX
-mvec_holdout = function(a, x, i)
-{
-  Reduce(rbind, Map(function(j) collect(dmapply(function(A, x) A[, -i, drop=FALSE] %*% drop(x)[-i], parts(a), replicate(totalParts(a), x, FALSE), output.type="darray",combine="rbind", nparts=nparts(a)), j), seq(1,totalParts(a))))
-}
-
-
 # Prototype darray coordinate descent that can be used with pirls
 dcoordinate_descent = function(X, W, z, lambda, alpha, beta, maxit)
 {
 
   dupdate_coordinates = function(X, W, z, lambda, alpha, beta)
   {
+
     beta_old = beta
-    for (i in 1:length(beta)) {
-#      beta[i] = soft_thresh_r(sum(W*X[1:nrow(X), i]*(z - X[,-i] %*% beta_old[-i])),
-      beta[i] = soft_thresh_r(sum(W*X[1:nrow(X), i]*(z - mvec_holdout(X, beta_old, i))),
-                                 sum(W)*lambda*alpha)
-    }
+# sequential debug: 
+#    XX = collect(X)
+#    for (i in 1:length(beta)) {
+#      beta[i] = soft_thresh_r(sum(W*XX[, i]*(z - XX[,-i,drop=FALSE] %*% beta_old[-i])), sum(W)*lambda*alpha)
+#    }
+# distributed/parallel version:
+    cs = colSums(
+          dmapply(function(X, beta_old, W, z)
+          {
+            Reduce(cbind,
+              Map(function(i) W * X[, i] * (z - X[, -i, drop=FALSE] %*% drop(beta_old)[-i]), 1:length(beta_old))
+            )
+          }, parts(X),
+             replicate(totalParts(X), beta_old, FALSE),
+             split(W, rep(1:nparts(X)[1], psize(X)[,1])),
+             split(z, rep(1:nparts(X)[1], psize(X)[,1])),
+             output.type="darray", combine="rbind", nparts=nparts(X))
+         )
+     p = sum(W) * lambda * alpha
+     beta = vapply(1:length(beta_old), function(i) soft_thresh_r(cs[i], p) , 1)
+
+# XXX maybe we can fold this next scaling into the parallel code above?
 #    beta / (colSums(W*X^2) + lambda*(1-alpha))
     beta / (colSums(dmapply(function(a, b) b  * a ^ 2, parts(x), split(W, rep(1:nparts(X)[1], psize(X)[,1])), output.type="darray", combine="rbind", nparts=nparts(X))) + lambda * (1 - alpha))
   }

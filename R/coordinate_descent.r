@@ -1,7 +1,7 @@
 update_coordinates = function(X, W, z, lambda, alpha, beta) {
   beta_old = beta
   for (i in 1:length(beta)) {
-    beta[i] = soft_thresh_r(sum(W*X[,i]*(z - X[,-i] %*% beta_old[-i])),
+    beta[i] = soft_thresh_r(sum(W*X[,i]*(z - X[,-i, drop=FALSE] %*% beta_old[-i])),
                                sum(W)*lambda*alpha)
   }
   beta / (colSums(W*X^2) + lambda*(1-alpha))

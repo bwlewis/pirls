@@ -1,12 +1,27 @@
 library(pirls)
 library(ddR)
 
+### Utility functions
+
 # Compute a %*% x where a is a darray and x is a vector
-# XXX rbind is expensive, consider allocating the result and explicitly filling in XXX
 mvec = function(a, x)
 {
-  Reduce(rbind, Map(function(j) collect(dmapply(function(A, x) A %*% x, parts(a), replicate(totalParts(a), x, FALSE), output.type="darray",combine="rbind", nparts=nparts(a)), j), seq(1,totalParts(a))))
+  collect(
+    dmapply(function(x, y) x %*% y,
+            parts(a),
+            replicate(totalParts(a), x, FALSE),
+            output.type="darray", combine="rbind", nparts=nparts(a)))
 }
+setMethod("%*%", signature(x="ParallelObj", y="numeric"), function(x ,y)
+{
+  stopifnot(ncol(x) == length(y))
+  mvec(x, y)
+})
+setMethod("%*%", signature(x="ParallelObj", y="matrix"), function(x ,y)
+{
+  stopifnot(ncol(x) == nrow(y))
+  mvec(x, drop(y))
+})
 
 # Cross product t(b) %*% a for vector b and darray a, returns a vector
 cross = function(a, b)
@@ -46,40 +61,26 @@ function(x, y, family=binomial, maxit=25, tol=1e-08)
   b = rep(0, ncol(x))
   for(j in 1:maxit)
   {
-    eta    = mvec(x, b)
+    eta    = drop(x %*% b)
     g      = family()$linkinv(eta)
     gprime = family()$mu.eta(eta)
     z      = eta + (y - g) / gprime
     W      = drop(gprime^2 / family()$variance(g))
     bold   = b
-    b      = solve(wcross(x, W), cross(x, W*z), tol=2*.Machine$double.eps)
+    b      = solve(wcross(x, W), cross(x, W * z), tol=2 * .Machine$double.eps)
     if(sqrt(crossprod(b - bold)) < tol) break
   }
   list(coefficients=b, iterations=j)
 }
 
 
-# Distributed PIRLS algorithm code follows ------------------------------------
-
-# A trivially basic parallel darray times vector product, used in quadratic_loss
-setMethod("%*%", signature(x="ParallelObj", y="numeric"), function(x ,y)
-{
-  stopifnot(ncol(x) == length(y))
-  mvec(x, y)
-})
-setMethod("%*%", signature(x="ParallelObj", y="matrix"), function(x ,y)
-{
-  stopifnot(ncol(x) == nrow(y))
-  mvec(x, drop(y))
-})
+### Distributed PIRLS algorithm example
 
 # Prototype darray coordinate descent that can be used with pirls
 dcoordinate_descent = function(X, W, z, lambda, alpha, beta, maxit)
 {
-
   dupdate_coordinates = function(X, W, z, lambda, alpha, beta)
   {
-
     beta_old = beta
 # sequential debug: 
 #    XX = collect(X)
@@ -107,8 +108,9 @@ dcoordinate_descent = function(X, W, z, lambda, alpha, beta, maxit)
     beta / (colSums(dmapply(function(a, b) b  * a ^ 2, parts(x), split(W, rep(1:nparts(X)[1], psize(X)[,1])), output.type="darray", combine="rbind", nparts=nparts(X))) + lambda * (1 - alpha))
   }
 
-  quad_loss = pirls:::quadratic_loss(X, W, z, lambda, alpha, beta)
-  for(i in 1:maxit) {
+  quad_loss = pirls:::quadratic_loss(X, W, z, lambda, alpha, beta) # XXX namespace
+  for(i in 1:maxit)
+  {
     beta_old = beta
     quad_loss_old = quad_loss
     beta = dupdate_coordinates(X, W, z, lambda, alpha, beta)

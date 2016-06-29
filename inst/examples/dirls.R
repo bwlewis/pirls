@@ -117,9 +117,13 @@ dcoordinate_descent = function(X, W, z, lambda, alpha, beta, maxit)
 
 
 # EXAMPLES
-
 x = dmapply(function(x) matrix(runif(4), 2, 2), 1:4, output.type="darray", combine="rbind", nparts=c(4, 1))
 y = 1:8
+
+# IRLS
 print(coef(dirls(x, y, gaussian)))
 print(coef(lm.fit(collect(x), y)))
-print(pirls(x, rep(1,2), lambda=0, alpha=1, family=gaussian, beta=matrix(1, nrow=2, ncol=1), beta_update=dcoordinate_descent))
+
+# PIRLS
+print(pirls(collect(x), y, lambda=0, alpha=1, family=gaussian, beta=matrix(0, nrow=2, ncol=1)))
+print(pirls(x, y, lambda=0, alpha=1, family=gaussian, beta=matrix(0, nrow=2, ncol=1), beta_update=dcoordinate_descent))

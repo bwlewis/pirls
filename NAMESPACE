@@ -3,4 +3,4 @@
 export(pirls)
 export(soft_thresh_r)
 importFrom(Rcpp,sourceCpp)
-useDynLib(pirls)
+#useDynLib(pirls)

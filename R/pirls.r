@@ -20,10 +20,9 @@ NULL
 #' @param beta initial slope coefficients. Default is zeros.
 #' @param beta_update a function for optimizing the slope coefficients
 #' for the current weight matrix. Default is coordinate_descent.
-#' @importFrom Matrix spMatrix
 #' @export
 pirls = function(X, y, lambda, alpha=1, family=binomial, maxit=500, 
-                      tol=1e-8, beta=spMatrix(nrow=ncol(X), ncol=1), 
+                      tol=1e-8, beta=Matrix::spMatrix(nrow=ncol(X), ncol=1), 
                       beta_update=coordinate_descent) {
   converged = FALSE
   for(i in 1:maxit) {

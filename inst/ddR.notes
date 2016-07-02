@@ -1,0 +1,112 @@
+Notes on ddR data structure
+
+DObject is the abstract container classes for distributed lists (DList), arrays
+(DArray), data.frames (DFrame) .These objects are containers of objects that
+are pointers to data making up the object but retrieved through a backend, an
+extension of the ddRDriver class.  The backend is required to provide specific
+implementations for the DList, DArray, DFrame classes (the default is
+pdriver.R).
+
+## DObject Slots
+
+nparts  Stores the 2d-partitioning scheme of the distributed object.
+psize   Stores, as a 2d-matrix (1d-for dlists) of the size of each partition.
+dim     The dimensions of the distributed object.
+backend A character vector of the name of the backend that created the object.
+type    The distributed object type for this object (e.g,. 'dlist').
+
+## DObject functions
+
+collect  collect values from chunk pointers, whole partitions only
+         accessed from the backend driver through do_collect
+parts    collect chunk pointer objects from a container
+         accessed from the backend driver through get_parts
+psize    return dim of one or more chunk
+nparts   return number of chunks
+totalParts
+is.*
+initializers for dlist, darray, dframe
+repartition
+as.*
+
+# Other functions
+
+dmapply  operations on **chunks** (not really on DObjects, that is you
+need to use the parts function), backend class this do_dmapply
+inherited rbind, cbind, c, [
+
+
+
+
+-------------------------------------------------------------------------
+IRLBA implementation
+
+Note! It assumes matrix partitioned only by rows. These functions return
+materialized values.
+
+setMethod("%*%", signature(x="ParallelObj", y="numeric"), function(x ,y)
+{
+  stopifnot(ncol(x) == length(y))
+  collect(
+    dmapply(function(a, b) a %*% b,
+            parts(x),
+            replicate(totalParts(x), y, FALSE),
+            output.type="darray", combine="rbind", nparts=nparts(x)))
+})
+setMethod("%*%", signature(x="numeric", y="ParallelObj"), function(x ,y)
+{
+  stopifnot(length(x) == nrow(y))
+  colSums(
+    dmapply(function(x, y) x %*% y,
+            split(x, rep(1:nparts(y)[1], psize(y)[, 1])),
+            parts(y),
+            output.type="darray", combine="rbind", nparts=nparts(y)))
+})
+
+
+What we like about ddR
+
+dlist, darray, dframe containers
+pretty easy to drop in
+
+Changes we're thiking through
+
+- separate container/data api from execution api (multiple packages)
+- refined data chunk api
+  * get_values(chunk, indices, ...)
+  * get_attributes(chunk)
+  * get_attr(chunk, x)
+  * get_length(chunk)
+  * get_object.size(chunk)
+  * get_typeof(chunk)
+  * new_chunk(backend, ...)
+  * as.chunk(backend, value)
+- slightly less rigid containers, grid inferred from chunks instead of top down allows non-uniform grid, backends belong to chunks
+
+Example initialization
+
+chunk1 = as.chunk(backend, matrix(1, nrow=10, ncol=10))
+chunk2 = as.chunk(backend, matrix(2, nrow=10, ncol=2))
+chunk3 = as.chunk(1:12)
+x = darray(list(chunk1, chunk1, chunk2, chunk2), nrow=2, ncol=2) # 20 x 12 array
+y = darray(list(chunk3), ncol=1)  # 12 x 1 array
+
+Example computations
+
+Purely sequential, just using the data chunk api:
+z = darray(list(as.chunk(backend, x[1:10,] %*% y[]), as.chunk(backend, x[11:20,] %*% y[])), ncol=1)
+
+Using a parallel execution framework:
+z = darray(mclapply(split(1:nrow(x), 1:2), function(i)
+    {
+       as.chunk(backend, x[i, ] %*% y[])
+    }), ncol=1)
+
+
+
+
+The gist is that the computation pattern is defined by the desired output
+instead of by the inputs. Free to either follow the partitions carefully for
+efficiency or use other patterns, which might make things much easier in some
+cases. Free to use arbitrary parallel execution systems or not, which could
+also be formalized in new a dmapply package that mimics current ddR.
